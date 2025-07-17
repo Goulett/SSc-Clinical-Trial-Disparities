@@ -1,0 +1,216 @@
+---
+title: "Racial Disparities in Scleroderma Clinical Trial Participation in the United States"
+author: "Natalie Goulett"
+date: "`r Sys.Date()`"
+number-sections: true
+format: docx
+embed-resources: false
+code-fold: true
+---
+
+# Methods
+
+The numbers of scleroderma patients in the U.S. and Southeastern U.S. in total and by race were estimated based on the estimated U.S. population provided by the [United States Census Bureau](https://www.census.gov/quickfacts/fact/table/US#) as of July 1st, 2024; the estimated scleroderma prevalence among adults in the United States of 25.9 per 100,000 people [(Fan, et al. 2020)](https://www.jmcp.org/doi/10.18553/jmcp.2020.20136); and the scleroderma prevalence estimates among White and Black populations based on prevalence estimates from [(Mayes, et al. 2003)](https://onlinelibrary.wiley.com/doi/10.1002/art.11073).
+
+To investigate whether the demographics of scleroderma clinical trial participants are reflective of the the United States' scleroderma patient population, two one-sample z-tests were conducted in R 4.5.0 to compare the observed proportions of White and Black participants in U.S. clinical trials to their respective estimated proportions within the United State's scleroderma patient population. Furthermore, we quantified this disparity by estimating the number of all Black scleroderma patients who are unrepresented in clinical trials in the United States and Southeastern U.S. (defined as AL, AR, FL, GA, KY, LA, MS, NC, SC, and TN), which is home to about half of the United States’ total Black population.
+
+# Analysis
+
+```{r}
+#| label: packages-used
+#| warning: false
+
+# Install and load required packages:
+# install.packages("tidyverse")
+
+library(tidyverse)  # for data wrangling and visualization
+
+```
+
+## US Clinical Trial Data
+
+```{r}
+#| label: read-and-transform-data
+#| warning: false
+
+ct_demo_df <- read_csv(
+  "./Data/20240717_usSScClinTrialDemo.csv",
+  col_names = TRUE,
+  na = c("#N/A", "#NA", "Not Reported", "Not reported")) %>% 
+  rename(
+    "total_participants" = "Number of participants analyzed - use this number for total participants",
+    "female" = "Female",
+    "male" = "Male",
+    "other_gender" = "Other",
+    "study_ID" = "ClinicalTrials.gov ID",
+    "hispanic" = "Hispanic or Latino",
+    "non_hispanic" = "Not Hispanic or Latino",
+    "unknown_ethnicity" = "Unknown or not reported ethnicity",
+    "native_american_an" = "American Indian or Alaska Native",
+    "asian" = "Asian",
+    "native_hawaiian_pi" = "Native Hawaiian or Other Pacific Islander",
+    "black_participants" = "Black or African American",
+    "white_participants" = "White",
+    "multi_race" = "More than one race",
+    "unknown_race" = "Unknown or not reported"
+  ) %>% 
+  drop_na(total_participants, black_participants)
+
+```
+
+
+## Participant Demographics Calculation
+
+```{r}
+#| label: demographics
+#| warning: false
+
+# total U.S. clinical trial participants
+ct_n <- sum(ct_demo_df$total_participants, na.rm = TRUE) - sum(ct_demo_df$unknown_race)
+
+# Summarize participants by race, gender, and ethnicity
+race_summary <- ct_demo_df %>%
+  summarise(
+    total_black = sum(black_participants, na.rm = TRUE),
+    total_white = sum(white_participants, na.rm = TRUE),
+    total_native_american_an = sum(native_american_an, na.rm = TRUE),
+    total_native_hawaiian_pi = sum(native_hawaiian_pi, na.rm = TRUE),
+    total_asian = sum(asian, na.rm = TRUE),
+    total_multi_race = sum(multi_race, na.rm = TRUE),
+    total_unknown_race = sum(unknown_race, na.rm = TRUE),
+    percent_black = (total_black / ct_n) * 100,
+    percent_white = (total_white / ct_n) * 100,
+    percent_native_american_an = (total_native_american_an / ct_n) * 100,
+    percent_native_hawaiian_pi = (total_native_hawaiian_pi / ct_n) * 100,
+    percent_asian = (total_asian / ct_n) * 100,
+    percent_multi_race = (total_multi_race / ct_n) * 100,
+    percent_unknown_race = (total_unknown_race / ct_n) * 100,
+    total_reporting_race = sum(
+      total_black,
+      total_white,
+      total_native_american_an,
+      total_native_hawaiian_pi,
+      total_asian,
+      total_multi_race
+    )
+  )
+
+gender_summary <- ct_demo_df %>% 
+  summarise(
+    total_male = sum(male, na.rm = TRUE),
+    total_female = sum(female, na.rm = TRUE),
+    percent_male = (total_male / ct_n) * 100,
+    percent_female = (total_female / ct_n) * 100
+  )
+
+ethnicity_summary <- ct_demo_df %>%
+  summarise(
+    total_hispanic = sum(hispanic, na.rm = TRUE),
+    total_non_hispanic = sum(non_hispanic, na.rm = TRUE),
+    total_unknown_ethnicity = sum(unknown_ethnicity, na.rm = TRUE),
+    total_reporting_ethnicity = sum(total_hispanic, total_non_hispanic),
+    percent_hispanic = (total_hispanic / total_reporting_ethnicity) * 100,
+    percent_non_hispanic = (total_non_hispanic / total_reporting_ethnicity) * 100
+  )
+
+# Combine summaries into one data frame
+demographics_df <- bind_cols(
+  race_summary,
+  gender_summary,
+  ethnicity_summary
+) %>% 
+  pivot_longer(cols = everything())
+
+print(demographics_df, n = 25)
+
+# calculate number of black U.S. clinical trial participants
+ct_n_black <- sum(ct_demo_df$black_participants, na.rm = TRUE)
+# calculate number of white participants
+ct_n_white <- sum(ct_demo_df$white_participants, na.rm = TRUE)
+# calculate number of non-black U.S. clinical trial participants
+ct_n_nonblack <- ct_n - ct_n_black
+p_hat      <- ct_n_black / ct_n              # observed trial % Black
+
+
+```
+
+
+## One-Sample Proportion Tests for Black and White Participants
+```{r}
+#| label: us-one-sample-prop-test
+
+# The following objects are already defined:
+#   ct_n          : total number of trial participants
+#   ct_n_black    : number of Black participants in trials
+#   ct_n_white    : number of White participants in trials
+
+# Population reference counts:
+pop_n        <- 88089        # total estimated US SSc cases
+pop_black    <- 15714        # estimated number of Black SSc cases
+pop_white    <- 61589        # estimated number of White SSc cases
+
+# 1) One‐sample z‐test for Black proportion -----------------------------
+p_hat_black <- ct_n_black / ct_n
+p0_black    <- pop_black / pop_n
+
+se0_black   <- sqrt(p0_black * (1 - p0_black) / ct_n)
+z_black     <- (p_hat_black - p0_black) / se0_black
+pval_black  <- 2 * (1 - pnorm(abs(z_black)))
+
+# 95% CI around the trial’s observed Black proportion
+se_hat_black <- sqrt(p_hat_black * (1 - p_hat_black) / ct_n)
+ci_hat_black <- p_hat_black + c(-1, 1) * qnorm(0.975) * se_hat_black
+
+cat("One‐sample z‐test for Black proportion:\n")
+cat(sprintf("  Observed p̂_black = %.4f (%.1f%%)\n",
+            p_hat_black, 100 * p_hat_black))
+cat(sprintf("  95%% CI for p̂_black: [%.4f, %.4f] (%.1f%%–%.1f%%)\n",
+            ci_hat_black[1], ci_hat_black[2],
+            100 * ci_hat_black[1], 100 * ci_hat_black[2]))
+cat(sprintf("  Null p₀_black = %.4f (%.1f%%)\n",
+            p0_black, 100 * p0_black))
+cat(sprintf("  z = %.2f,  two‐sided p = %.3g\n\n",
+            z_black, pval_black))
+
+
+# 2) One‐sample z‐test for White proportion -----------------------------
+p_hat_white <- ct_n_white / ct_n
+p0_white    <- pop_white / pop_n
+
+se0_white   <- sqrt(p0_white * (1 - p0_white) / ct_n)
+z_white     <- (p_hat_white - p0_white) / se0_white
+pval_white  <- 2 * (1 - pnorm(abs(z_white)))
+
+# 95% CI around the trial’s observed White proportion
+se_hat_white <- sqrt(p_hat_white * (1 - p_hat_white) / ct_n)
+ci_hat_white <- p_hat_white + c(-1, 1) * qnorm(0.975) * se_hat_white
+
+cat("One‐sample z‐test for White proportion:\n")
+cat(sprintf("  Observed p̂_white = %.4f (%.1f%%)\n",
+            p_hat_white, 100 * p_hat_white))
+cat(sprintf("  95%% CI for p̂_white: [%.4f, %.4f] (%.1f%%–%.1f%%)\n",
+            ci_hat_white[1], ci_hat_white[2],
+            100 * ci_hat_white[1], 100 * ci_hat_white[2]))
+cat(sprintf("  Null p₀_white = %.4f (%.1f%%)\n",
+            p0_white, 100 * p0_white))
+cat(sprintf("  z = %.2f,  two‐sided p = %.3g\n",
+            z_white, pval_white))
+
+```
+
+# Results
+
+Based on Census data and race-specific prevalence estimates, we estimate that 29.1% of SSc patients in the Southeast are Black (95% CI: 28.7%–29.7%), which is 63.2% higher than the national proportion of 17.8%. In absolute numbers, we estimate there are 88,089 SSc patients in the entire U.S. (95% CI: 86,728–89,789), of whom 15,714 are Black (95% CI: 15,471–16,017). In the Southeastern region, that implies 5,932 Black scleroderma patients (95% CI: 5,840–6,046). Because only 60 Black patients appeared in trials, we estimate that 7,874 Black SSc patients nationwide remain unrepresented in trials (95% CI: 5,936–9,769), and 5,404 unrepresented Black patients in the Southeast (95% CI: 5,273–5,531).
+
+The proportion of Black participants enrolled in U.S. scleroderma clinical trials was 8.9% (60/673; 95% CI: 6.8%–11.1%). This was significantly lower than our estimated proportion of Black individuals in the general U.S. scleroderma population (17.8% [95% CI: 16.8%–18.9%]; see Methods for how this CI was derived). A one-sample z-test comparing 8.9% to 17.8% yielded z = –7.72, p < 0.001. The absolute difference between trial versus population was –8.9 percentage points (95% CI: –11.1% to –6.8%), corresponding to an observed-to-expected ratio (OER) of 0.50 (95% CI: 0.37–0.62).
+
+In contrast, White participants made up 84.7% of clinical trial enrollees (570/673; 95% CI: 82.0%–87.4%), which was significantly higher than the estimated proportion of White patients in the U.S. scleroderma population (69.9% [95% CI: 68.1%–71.7%]). The one-sample z-test comparing 84.7% vs. 69.9% gave z = 8.64, p < 0.001. The absolute difference was +14.8 percentage points (95% CI: 12.0%–17.5%), with an OER of 1.21 (95% CI: 1.17–1.25). Together, these results indicate that Black individuals are markedly underrepresented and White individuals are overrepresented in clinical trials relative to their disease burden in the overall U.S. scleroderma population. This underrepresentation may have implications for the generalizability of clinical trial findings and highlights a need for targeted efforts to improve racial equity in scleroderma research participation.
+
+
+# References
+
+1. U.S. Census Bureau. (2024). QuickFacts: United States. U.S. Department of Commerce. Retrieved May 31, 2025, from https://www.census.gov/quickfacts/fact/table/US#
+2. Fan, Y., Bender, S., Shi, W., & Zoz, D. (2020). Incidence and prevalence of systemic sclerosis and systemic sclerosis with interstitial lung disease in the United States. Journal of Managed Care & Specialty Pharmacy, 26(12), 1539–1547. https://doi.org/10.18553/jmcp.2020.20136
+3. Mayes, M. D., Lacey, J. V., Beebe‐Dimmer, J., Gillespie, B. W., Cooper, B., Laing, T. J., & Schottenfeld, D. (2003). Prevalence, incidence, survival, and disease characteristics of systemic sclerosis in a large US population. Arthritis & Rheumatism, 48(8), 2246–2255. https://doi.org/10.1002/art.11073
+
+
